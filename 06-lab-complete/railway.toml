@@ -1,9 +1,10 @@
 [build]
-builder = "DOCKERFILE"
+builder = "dockerfile"
 
 [deploy]
-startCommand = "uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 2"
+# Chạy tất cả 5 agents trong 1 Railway service
+startCommand = "bash start_all.sh"
 healthcheckPath = "/health"
-healthcheckTimeout = 30
-restartPolicyType = "ON_FAILURE"
+healthcheckTimeout = 60
+restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3

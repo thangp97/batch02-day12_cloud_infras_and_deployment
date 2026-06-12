@@ -126,3 +126,53 @@ class CostGuard:
 
 # Singleton
 cost_guard = CostGuard(daily_budget_usd=1.0, global_daily_budget_usd=10.0)
+
+
+# ============================================================
+# Exercise 4.4: Redis-based monthly budget (stateless version)
+# Dùng Redis để track spending → hoạt động đúng khi scale nhiều instances
+# ============================================================
+import os
+from datetime import datetime
+
+try:
+    import redis as redis_lib
+    _redis = redis_lib.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+    _redis_available = True
+except Exception:
+    _redis_available = False
+
+
+MONTHLY_BUDGET_USD = float(os.getenv("MONTHLY_BUDGET_USD", "10.0"))
+
+
+def check_budget(user_id: str, estimated_cost: float) -> bool:
+    """
+    Kiểm tra monthly budget của user dựa trên Redis.
+
+    - Mỗi user có budget MONTHLY_BUDGET_USD/tháng (mặc định $10)
+    - Key tự động reset đầu tháng (TTL 32 ngày)
+    - Nếu Redis không khả dụng → cho phép request qua (fail open)
+
+    Returns True nếu còn budget, False nếu vượt.
+    """
+    if not _redis_available:
+        logger.warning("Redis unavailable — skipping budget check")
+        return True
+
+    month_key = datetime.now().strftime("%Y-%m")
+    key = f"budget:{user_id}:{month_key}"
+
+    current = float(_redis.get(key) or 0)
+
+    if current + estimated_cost > MONTHLY_BUDGET_USD:
+        logger.warning(
+            f"Budget exceeded: user={user_id} "
+            f"spent=${current:.4f} estimated=${estimated_cost:.4f} "
+            f"limit=${MONTHLY_BUDGET_USD}"
+        )
+        return False
+
+    _redis.incrbyfloat(key, estimated_cost)
+    _redis.expire(key, 32 * 24 * 3600)  # TTL 32 ngày → tự reset đầu tháng sau
+    return True

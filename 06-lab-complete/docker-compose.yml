@@ -1,33 +1,75 @@
-version: "3.9"
-
 services:
-  agent:
+  registry:
     build: .
-    ports:
-      - "8000:8000"
     environment:
-      - ENVIRONMENT=staging
-      - APP_NAME=Production AI Agent
-      - REDIS_URL=redis://redis:6379/0
-    env_file:
-      - .env.local
-    depends_on:
-      redis:
-        condition: service_healthy
+      AGENT_MODULE: registry
+      REGISTRY_PORT: "10000"
+    ports:
+      - "10000:10000"
     healthcheck:
       test: ["CMD", "python", "-c",
-             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
-    restart: unless-stopped
-
-  redis:
-    image: redis:7-alpine
-    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
+        "import urllib.request; urllib.request.urlopen('http://localhost:10000/health')"]
+      interval: 5s
       timeout: 3s
-      retries: 3
+      retries: 10
+
+  tax_agent:
+    build: .
+    environment:
+      AGENT_MODULE: tax_agent
+      AGENT_HOST: tax_agent
+      TAX_AGENT_PORT: "10102"
+      REGISTRY_URL: http://registry:10000
+    env_file: [.env]
+    depends_on:
+      registry:
+        condition: service_healthy
+
+  compliance_agent:
+    build: .
+    environment:
+      AGENT_MODULE: compliance_agent
+      AGENT_HOST: compliance_agent
+      COMPLIANCE_AGENT_PORT: "10103"
+      REGISTRY_URL: http://registry:10000
+    env_file: [.env]
+    depends_on:
+      registry:
+        condition: service_healthy
+
+  law_agent:
+    build: .
+    environment:
+      AGENT_MODULE: law_agent
+      AGENT_HOST: law_agent
+      LAW_AGENT_PORT: "10101"
+      REGISTRY_URL: http://registry:10000
+    env_file: [.env]
+    depends_on:
+      registry:
+        condition: service_healthy
+
+  customer_agent:
+    build: .
+    environment:
+      AGENT_MODULE: customer_agent
+      AGENT_HOST: customer_agent
+      CUSTOMER_AGENT_PORT: "10100"
+      REGISTRY_URL: http://registry:10000
+    env_file: [.env]
+    depends_on:
+      registry:
+        condition: service_healthy
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - customer_agent
+
+networks:
+  default:
+    name: legal-net

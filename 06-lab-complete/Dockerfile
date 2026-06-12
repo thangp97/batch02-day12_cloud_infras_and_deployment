@@ -1,49 +1,33 @@
-# ============================================================
-# Production Dockerfile — Multi-stage, < 500 MB, non-root
-# ============================================================
-
-# Stage 1: Builder
+# Stage 1: builder — cài dependencies vào /root/.local
 FROM python:3.11-slim AS builder
-
 WORKDIR /build
-
-RUN apt-get update && apt-get install -y gcc libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
-
 COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+RUN pip install --user --no-cache-dir -r requirements.txt
 
-
-# Stage 2: Runtime
+# Stage 2: runtime — chỉ copy packages đã cài + source code
 FROM python:3.11-slim AS runtime
-
-# Non-root user
-RUN groupadd -r agent && useradd -r -g agent -d /app agent
-
 WORKDIR /app
 
-# Copy packages từ builder
-COPY --from=builder /root/.local /home/agent/.local
+# Copy installed packages từ builder (giảm image size)
+COPY --from=builder /root/.local /root/.local
+ENV PATH=/root/.local/bin:$PATH
 
-# Copy application
-COPY app/ ./app/
-COPY utils/ ./utils/
+# Copy source code (không copy __pycache__, .env, v.v.)
+COPY common/          common/
+COPY registry/        registry/
+COPY customer_agent/  customer_agent/
+COPY law_agent/       law_agent/
+COPY tax_agent/       tax_agent/
+COPY compliance_agent/ compliance_agent/
+COPY start_all.sh     .
 
-RUN chown -R agent:agent /app
+# Fix Windows CRLF → Unix LF và set executable
+RUN sed -i 's/\r//' start_all.sh && chmod +x start_all.sh
 
-USER agent
+# Chọn agent module khi build (override qua docker-compose environment)
+ARG AGENT_MODULE=customer_agent
+ENV AGENT_MODULE=${AGENT_MODULE}
 
-ENV PATH=/home/agent/.local/bin:$PATH
-ENV PYTHONPATH=/app
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
+EXPOSE 10000 10100 10101 10102 10103
 
-EXPOSE 8000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD python -c \
-    "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" \
-    || exit 1
-
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+CMD ["sh", "-c", "python -m ${AGENT_MODULE}"]
